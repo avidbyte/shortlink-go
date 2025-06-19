@@ -1,0 +1,18 @@
+server:
+  addr: ":8080"
+
+
+log:
+  level: "info"
+  path: "logs/shortlink.log"
+  max_size: 10         # 单个文件最大大小 (MB)
+  max_backups: 5       # 保留文件数量
+  max_age: 7           # 保留天数
+  compress: true       # 是否压缩旧日志
+
+db:
+  dsn: "root:uKfBUMRT1xqEgFUi@tcp(localhost:3306)/short_link?charset=utf8mb4&parseTime=True&loc=Local"
+
+redis:
+  addr: "localhost:6379"
+  password: ""

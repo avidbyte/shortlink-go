@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"shortlink-platform/backend/internal/handler"
-	"shortlink-platform/backend/internal/middleware"
-	"shortlink-platform/backend/internal/repository"
-	"shortlink-platform/backend/internal/service"
-	"shortlink-platform/backend/pkg/logging"
+	"shortlink-go/internal/handler"
+	"shortlink-go/internal/i18n"
+	"shortlink-go/internal/middleware"
+	"shortlink-go/internal/repository"
+	"shortlink-go/internal/service"
+	"shortlink-go/pkg/logging"
 	"syscall"
 	"time"
 
@@ -88,6 +89,15 @@ func main() {
 	repository.InitDB(logging.Logger, logging.AtomicLevel)
 	repository.InitRedis()
 
+	// 初始化 i18n（加载 TOML 文件）
+	bundle, err := i18n.InitI18n([]string{
+		"./i18n/en.toml",
+		"./i18n/zh.toml",
+	}, "en")
+	if err != nil {
+		panic(err)
+	}
+
 	gin.Default()
 	r := gin.New()
 	r.Use(gin.Recovery()) // 显式添加 Recovery 中间件
@@ -96,6 +106,8 @@ func main() {
 	r.Use(middleware.GlobalErrorMiddleware())
 	r.Use(middleware.ZapGinLogger(logging.Logger))
 	r.Use(middleware.CorsMiddleware())
+	// 使用 i18n 中间件
+	r.Use(middleware.I18nMiddleware(bundle))
 
 	api := r.Group("/api")
 	{

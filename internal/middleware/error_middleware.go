@@ -4,8 +4,8 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"net/http"
-	"shortlink-platform/backend/internal/apperrors"
-	"shortlink-platform/backend/response"
+	"shortlink-go/internal/apperrors"
+	"shortlink-go/response"
 )
 
 // GlobalErrorMiddleware 全局错误中间件

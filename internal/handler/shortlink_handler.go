@@ -4,12 +4,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"net/http"
-	"shortlink-platform/backend/internal/apperrors"
-	"shortlink-platform/backend/internal/dto"
-	"shortlink-platform/backend/internal/repository"
-	"shortlink-platform/backend/internal/service"
-	"shortlink-platform/backend/pkg/logging"
-	"shortlink-platform/backend/response"
+	"shortlink-go/internal/apperrors"
+	"shortlink-go/internal/dto"
+	"shortlink-go/internal/repository"
+	"shortlink-go/internal/service"
+	"shortlink-go/pkg/logging"
+	"shortlink-go/response"
 	"strconv"
 )
 
@@ -31,7 +31,7 @@ func CreateShortLinkHandler(c *gin.Context) {
 
 	zap.L().Info("Request Headers", zap.Any("headers", c.Request.Header))
 
-	if err := service.CreateShortLink(req); err != nil {
+	if err := service.CreateShortLink(c.Request.Context(), req); err != nil {
 		// 记录关键业务参数和错误上下文
 		zap.L().Warn("Short chain creation failed",
 			zap.Error(err),
@@ -65,7 +65,7 @@ func ListShortLinksHandler(c *gin.Context) {
 	}
 
 	// 调用服务层
-	pageResp, err := service.ListShortLinks(page, size, shortCode)
+	pageResp, err := service.ListShortLinks(c.Request.Context(), page, size, shortCode)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -101,7 +101,7 @@ func UpdateShortLinkStatusHandler(c *gin.Context) {
 	}
 
 	// 调用服务层
-	if err := service.UpdateShortLinkStatus(uint(id), req.Status == 1); err != nil {
+	if err := service.UpdateShortLinkStatus(c.Request.Context(), uint(id), req.Status == 1); err != nil {
 		_ = c.Error(err)
 		return
 	}
@@ -138,7 +138,7 @@ func UpdateShortLinkHandler(c *gin.Context) {
 	}
 
 	// 4. 调用服务层更新逻辑
-	if err := service.UpdateShortLink(uint(id), req.TargetURL); err != nil {
+	if err := service.UpdateShortLink(c.Request.Context(), uint(id), req.TargetURL); err != nil {
 		// 记录关键业务参数和错误上下文
 		zap.L().Warn("Short chain update failed",
 			zap.Error(err),
@@ -159,7 +159,7 @@ func RedirectToTargetURLHandler(c *gin.Context) {
 	ip := c.ClientIP()
 
 	// 查询缓存或数据库
-	shortLink, ok := service.RedirectToTargetURL(path, ip)
+	shortLink, ok := service.RedirectToTargetURL(c.Request.Context(), path, ip)
 	if !ok {
 		c.Status(http.StatusNotFound)
 		return

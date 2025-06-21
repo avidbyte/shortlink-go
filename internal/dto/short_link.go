@@ -2,7 +2,7 @@ package dto
 
 import (
 	"github.com/gin-gonic/gin"
-	"shortlink-platform/backend/pkg/utils"
+	"shortlink-go/pkg/utils"
 )
 
 // CreateShortLinkRequest 用于创建短链的请求参数

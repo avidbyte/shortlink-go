@@ -4,10 +4,10 @@ import (
 	"go.uber.org/zap"
 	"net/http"
 	"net/url"
-	"shortlink-platform/backend/internal/apperrors"
-	"shortlink-platform/backend/internal/model"
-	"shortlink-platform/backend/internal/repository"
-	"shortlink-platform/backend/response"
+	"shortlink-go/internal/apperrors"
+	"shortlink-go/internal/model"
+	"shortlink-go/internal/repository"
+	"shortlink-go/response"
 )
 
 // CreateWhitelistDomain 创建白名单域名

@@ -1,26 +1,27 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"gorm.io/gorm"
 	"net/http"
-	"shortlink-platform/backend/constant"
-	"shortlink-platform/backend/internal/apperrors"
-	"shortlink-platform/backend/internal/dto"
-	"shortlink-platform/backend/internal/model"
-	"shortlink-platform/backend/internal/repository"
-	"shortlink-platform/backend/pkg/logging"
-	"shortlink-platform/backend/pkg/utils"
+	"shortlink-go/constant"
+	"shortlink-go/internal/apperrors"
+	"shortlink-go/internal/dto"
+	"shortlink-go/internal/model"
+	"shortlink-go/internal/repository"
+	"shortlink-go/pkg/logging"
+	"shortlink-go/pkg/utils"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"go.uber.org/zap"
-	"shortlink-platform/backend/response"
+	"shortlink-go/response"
 )
 
 // CreateShortLink 创建短链
-func CreateShortLink(req dto.CreateShortLinkRequest) error {
+func CreateShortLink(ctx context.Context, req dto.CreateShortLinkRequest) error {
 	// Gin 标准验证
 	if err := req.Validate(); err != nil {
 		return apperrors.InvalidRequestError(err.Error())
@@ -52,7 +53,7 @@ func CreateShortLink(req dto.CreateShortLinkRequest) error {
 }
 
 // ListShortLinks 支持分页查询短链列表
-func ListShortLinks(page, size int, shortCode string) (*response.PageResponse[model.ShortLink], error) {
+func ListShortLinks(ctx context.Context, page, size int, shortCode string) (*response.PageResponse[model.ShortLink], error) {
 	// 参数校验
 	if page < 1 {
 		page = 1
@@ -91,7 +92,8 @@ func ListShortLinks(page, size int, shortCode string) (*response.PageResponse[mo
 		Offset((page - 1) * size).
 		Order("id DESC").
 		Find(&links).Error; err != nil {
-		return nil, apperrors.SystemError("查询短链失败: " + err.Error())
+		logging.Logger.Info("数据库操作失败", zap.Error(err))
+		return nil, apperrors.SystemErrorDefault()
 	}
 
 	// 计算总页数
@@ -107,12 +109,16 @@ func ListShortLinks(page, size int, shortCode string) (*response.PageResponse[mo
 }
 
 // UpdateShortLinkStatus 更新短链状态（启用/禁用）
-func UpdateShortLinkStatus(id uint, disabled bool) error {
+func UpdateShortLinkStatus(ctx context.Context, id uint, disabled bool) error {
 	var link model.ShortLink
 	if err := repository.DB.First(&link, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.BusinessError(http.StatusConflict, "短链不存在")
 		}
+		logging.Logger.Error("查询短链失败",
+			zap.Uint("id", id),
+			zap.Bool("disabled", disabled),
+			zap.Error(err))
 		return apperrors.SystemError("查询短链失败: " + err.Error())
 	}
 
@@ -149,7 +155,7 @@ func UpdateShortLinkStatus(id uint, disabled bool) error {
 }
 
 // UpdateShortLink 仅更新短链的 target_url 字段
-func UpdateShortLink(id uint, targetUrl string) error {
+func UpdateShortLink(ctx context.Context, id uint, targetUrl string) error {
 	// 查询现有短链记录
 	var existing model.ShortLink
 	if err := repository.DB.First(&existing, id).Error; err != nil {
@@ -188,7 +194,7 @@ func UpdateShortLink(id uint, targetUrl string) error {
 	return nil
 }
 
-func RedirectToTargetURL(shortCode string, ip string) (*model.ShortLink, bool) {
+func RedirectToTargetURL(ctx context.Context, shortCode string, ip string) (*model.ShortLink, bool) {
 	if err := utils.ValidateShortCode(shortCode); err != nil {
 		logging.Logger.Error("无效的 short_code",
 			zap.String("short_code", shortCode),         // 出错的 short_code

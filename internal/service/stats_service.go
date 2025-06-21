@@ -3,8 +3,8 @@ package service
 import (
 	"github.com/gomodule/redigo/redis"
 	"go.uber.org/zap"
-	"shortlink-platform/backend/constant"
-	"shortlink-platform/backend/pkg/logging"
+	"shortlink-go/constant"
+	"shortlink-go/pkg/logging"
 )
 
 // RecordDailyPV 记录每日 PV

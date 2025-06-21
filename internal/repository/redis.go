@@ -4,7 +4,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"shortlink-platform/backend/pkg/logging"
+	"shortlink-go/pkg/logging"
 	"time"
 )
 

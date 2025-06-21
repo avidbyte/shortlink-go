@@ -1,7 +1,7 @@
 package response
 
 import (
-	"shortlink-platform/backend/internal/apperrors"
+	"shortlink-go/internal/apperrors"
 	"time"
 )
 

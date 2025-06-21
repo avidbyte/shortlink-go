@@ -1,0 +1,6 @@
+[error]
+invalid_request = "Parameter verification failed"
+system_error = "System error"
+
+[success]
+add_whitelist = "The domain name has been added to the whitelist"

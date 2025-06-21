@@ -5,13 +5,14 @@ import (
 	"go.uber.org/zap"
 	"net/http"
 	"reflect"
-	"shortlink-platform/backend/internal/apperrors"
-	"shortlink-platform/backend/internal/dto"
-	"shortlink-platform/backend/internal/service"
+	"shortlink-go/internal/apperrors"
+	"shortlink-go/internal/dto"
+	"shortlink-go/internal/i18n"
+	"shortlink-go/internal/service"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"shortlink-platform/backend/response"
+	"shortlink-go/response"
 )
 
 // CreateWhitelistDomainHandler 创建白名单域名（POST /handler/whitelist）
@@ -52,7 +53,11 @@ func CreateWhitelistDomainHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, response.OK("", "域名已添加至白名单"))
+	//message := i18n.T(c, "success.add_whitelist", map[string]interface{}{
+	//	"name": "John",
+	//})
+	message := i18n.T(c.Request.Context(), "success.add_whitelist", nil)
+	c.JSON(http.StatusOK, response.OK("", message))
 }
 
 // ListWhitelistDomainsHandler 分页查询白名单（GET /handler/whitelist?domain=xxx&page=1&size=10）

@@ -5,8 +5,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"shortlink-platform/backend/internal/model"
-	"shortlink-platform/backend/pkg/logging"
+	"shortlink-go/internal/model"
+	"shortlink-go/pkg/logging"
 )
 
 var DB *gorm.DB

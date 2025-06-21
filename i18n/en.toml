@@ -1,6 +1,26 @@
 [error]
-invalid_request = "Parameter verification failed"
 system_error = "System error"
+invalid_request = "Parameter validation failed"
+request_body_invalid = "Invalid request body format"
+invalid_id = "Invalid ID"
+status_invalid = "Status must be 0 or 1"
+
+shortcode_required = "Shortcode cannot be empty"
+shortcode_not_found = "Shortcode not found"
+shortcode_exists = "Shortcode already exists"
+shortcode_invalid = "Invalid shortcode"
+shortcode_cannot_contain_spaces = "Shortcode cannot contain spaces"
+
+target_url_required = "Target URL cannot be empty"
+target_url_max_length = "Target URL maximum length cannot exceed 2048 characters"
+target_url_invalid = "Invalid target URL format"
+
+page_number_invalid = "Invalid page number"
+page_size_invalid = "Invalid page size"
 
 [success]
-add_whitelist = "The domain name has been added to the whitelist"
+resource_created = "Resource created successfully"
+short_link_created = "Short link created successfully"
+domain_added_to_whitelist = "Domain added to whitelist successfully"
+
+short_link_status_updated = "Short link status updated successfully"

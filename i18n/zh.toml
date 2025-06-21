@@ -1,14 +1,26 @@
 [error]
 system_error = "系统错误"
 invalid_request = "参数验证失败"
+request_body_invalid = "请求体格式错误"
+invalid_id = "无效的 ID"
+status_invalid = "状态必须为0或1"
+
+shortcode_required = "短码不能为空"
 shortcode_not_found = "短码不存在"
 shortcode_exists = "短码已存在"
-shortcode_illegality = "短码不合法"
-target_url_cannot_be_empty = "目标 url 不能为空"
-target_url_max_leagth = "目标 url 最大长度不能超过 2048 字符"
-target_url_illegality = "目标 url 格式不合法"
+shortcode_invalid = "短码不合法"
+shortcode_cannot_contain_spaces = "短码不能包含空格"
+
+target_url_required = "目标 URL 不能为空"
+target_url_max_length = "目标 URL 最大长度不能超过 2048 字符"
+target_url_invalid = "目标 URL 格式不合法"
+
+page_number_invalid = "页码不合法"
+page_size_invalid = "页大小不合法"
 
 [success]
-created = "成功创建"
-add_short = "短链创建成功"
-add_whitelist = "域名已添加至白名单"
+resource_created = "成功创建"
+short_link_created = "短链创建成功"
+domain_added_to_whitelist = "域名已添加至白名单"
+
+short_link_status_updated= "短链状态已更新"

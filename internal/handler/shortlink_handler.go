@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"shortlink-go/internal/apperrors"
 	"shortlink-go/internal/dto"
+	"shortlink-go/internal/i18n"
 	"shortlink-go/internal/repository"
 	"shortlink-go/internal/service"
 	"shortlink-go/pkg/logging"
@@ -19,12 +20,14 @@ func CreateShortLinkHandler(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// 记录请求上下文（方法、路径、原始请求体）
-		zap.L().Warn("Request body binding failed",
+		logging.Logger.Warn("Request body binding failed",
 			zap.Error(err),
 			zap.String("method", c.Request.Method),
 			zap.String("path", c.Request.URL.Path),
 		)
+
 		//显式忽略返回值
+		//message := i18n.T(c.Request.Context(), "error.invalid_request", nil)
 		_ = c.Error(apperrors.InvalidRequestErrorDefault())
 		return
 	}
@@ -33,15 +36,15 @@ func CreateShortLinkHandler(c *gin.Context) {
 
 	if err := service.CreateShortLink(c.Request.Context(), req); err != nil {
 		// 记录关键业务参数和错误上下文
-		zap.L().Warn("Short chain creation failed",
+		logging.Logger.Warn("Short chain creation failed",
 			zap.Error(err),
 			zap.String("short_code", req.ShortCode),
 		)
 		_ = c.Error(err)
 		return
 	}
-
-	c.JSON(http.StatusOK, response.OK("", "Short chain creation successful"))
+	message := i18n.T(c.Request.Context(), "success.short_link_created", nil)
+	c.JSON(http.StatusOK, response.OK("", message))
 }
 
 // ListShortLinksHandler 分页查询短链列表
@@ -54,13 +57,15 @@ func ListShortLinksHandler(c *gin.Context) {
 	// 参数转换
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 1 {
-		_ = c.Error(apperrors.InvalidRequestError("页码必须为正整数"))
+		//页码必须为正整数
+		_ = c.Error(apperrors.InvalidRequestError("Page number must be a positive integer"))
 		return
 	}
 
 	size, err := strconv.Atoi(sizeStr)
 	if err != nil || size < 1 || size > 100 {
-		_ = c.Error(apperrors.InvalidRequestError("每页数量必须为1-100之间的整数"))
+		//每页数量必须为1-100之间的整数
+		_ = c.Error(apperrors.InvalidRequestError("The number of pages must be an integer between 1 and 100."))
 		return
 	}
 
@@ -81,7 +86,8 @@ func UpdateShortLinkStatusHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id < 1 {
-		_ = c.Error(apperrors.InvalidRequestError("无效的 ID"))
+		message := i18n.T(c.Request.Context(), "error.invalid_id", nil)
+		_ = c.Error(apperrors.InvalidRequestError(message))
 		return
 	}
 
@@ -90,13 +96,15 @@ func UpdateShortLinkStatusHandler(c *gin.Context) {
 		Status int `json:"status"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(apperrors.InvalidRequestError("请求体格式错误"))
+		message := i18n.T(c.Request.Context(), "error.request_body_invalid", nil)
+		_ = c.Error(apperrors.InvalidRequestError(message))
 		return
 	}
 
 	// 校验 status 值
 	if req.Status != 0 && req.Status != 1 {
-		_ = c.Error(apperrors.InvalidRequestError("status 必须为 0 或 1"))
+		message := i18n.T(c.Request.Context(), "error.status_invalid", nil)
+		_ = c.Error(apperrors.InvalidRequestError(message))
 		return
 	}
 
@@ -105,9 +113,8 @@ func UpdateShortLinkStatusHandler(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-
-	// 构造响应
-	c.JSON(http.StatusOK, response.OK(struct{}{}, "短链状态已更新"))
+	message := i18n.T(c.Request.Context(), "success.short_link_status_updated", nil)
+	c.JSON(http.StatusOK, response.OK(struct{}{}, message))
 }
 
 // UpdateShortLinkHandler
@@ -117,23 +124,16 @@ func UpdateShortLinkHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		zap.L().Warn("Invalid short link ID",
-			zap.String("id", idStr),
-			zap.Error(err))
-		_ = c.Error(apperrors.BusinessError(http.StatusBadRequest, "无效的短链 ID"))
+		message := i18n.T(c.Request.Context(), "error.invalid_id", nil)
+		_ = c.Error(apperrors.BusinessError(http.StatusBadRequest, message))
 		return
 	}
 
 	// 2. 绑定请求体到 DTO
 	var req dto.UpdateShortLinkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// 记录请求上下文
-		zap.L().Warn("Request body binding failed",
-			zap.Error(err),
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
-		)
-		_ = c.Error(apperrors.InvalidRequestErrorDefault())
+		message := i18n.T(c.Request.Context(), "error.request_body_invalid", nil)
+		_ = c.Error(apperrors.InvalidRequestError(message))
 		return
 	}
 
@@ -159,7 +159,7 @@ func RedirectToTargetURLHandler(c *gin.Context) {
 	ip := c.ClientIP()
 
 	// 查询缓存或数据库
-	shortLink, ok := service.RedirectToTargetURL(c.Request.Context(), path, ip)
+	shortLink, ok := service.RedirectToTargetURL(path, ip)
 	if !ok {
 		c.Status(http.StatusNotFound)
 		return

@@ -9,6 +9,7 @@ import (
 	"shortlink-go/constant"
 	"shortlink-go/internal/apperrors"
 	"shortlink-go/internal/dto"
+	"shortlink-go/internal/i18n"
 	"shortlink-go/internal/model"
 	"shortlink-go/internal/repository"
 	"shortlink-go/pkg/logging"
@@ -24,13 +25,16 @@ import (
 func CreateShortLink(ctx context.Context, req dto.CreateShortLinkRequest) error {
 	// Gin 标准验证
 	if err := req.Validate(); err != nil {
-		return apperrors.InvalidRequestError(err.Error())
+
+		message := i18n.T(ctx, err.Error(), nil)
+		return apperrors.InvalidRequestError(message)
 	}
 
 	// 检查短链是否已存在
 	var existing model.ShortLink
 	if err := repository.DB.Where("short_code = ?", req.ShortCode).First(&existing).Error; err == nil {
 		logging.Logger.Info("短链已存在", zap.Error(err))
+
 		return apperrors.BusinessError(http.StatusConflict, "短链已存在")
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		logging.Logger.Info("查询短链失败", zap.Error(err))
@@ -71,7 +75,9 @@ func ListShortLinks(ctx context.Context, page, size int, shortCode string) (*res
 	// 查询总记录数
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
-		return nil, apperrors.SystemError("统计短链记录数失败: " + err.Error())
+		logging.Logger.Error("统计短链记录数失败", zap.Error(err))
+		message := i18n.T(ctx, "error.system_error", nil)
+		return nil, apperrors.SystemError(message)
 	}
 
 	// 如果总数为0，直接返回空结果，不执行分页查询
@@ -93,7 +99,8 @@ func ListShortLinks(ctx context.Context, page, size int, shortCode string) (*res
 		Order("id DESC").
 		Find(&links).Error; err != nil {
 		logging.Logger.Info("数据库操作失败", zap.Error(err))
-		return nil, apperrors.SystemErrorDefault()
+		message := i18n.T(ctx, "error.system_error", nil)
+		return nil, apperrors.SystemError(message)
 	}
 
 	// 计算总页数
@@ -113,19 +120,26 @@ func UpdateShortLinkStatus(ctx context.Context, id uint, disabled bool) error {
 	var link model.ShortLink
 	if err := repository.DB.First(&link, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.BusinessError(http.StatusConflict, "短链不存在")
+			message := i18n.T(ctx, "shortcode_not_found", nil)
+			return apperrors.BusinessError(http.StatusConflict, message)
 		}
 		logging.Logger.Error("查询短链失败",
 			zap.Uint("id", id),
 			zap.Bool("disabled", disabled),
 			zap.Error(err))
-		return apperrors.SystemError("查询短链失败: " + err.Error())
+		message := i18n.T(ctx, "error.system_error", nil)
+		return apperrors.SystemError(message)
 	}
 
 	// 更新状态
 	link.Disabled = disabled
 	if err := repository.DB.Save(&link).Error; err != nil {
-		return apperrors.SystemError("更新短链状态失败: " + err.Error())
+		logging.Logger.Error("更新短链状态失败",
+			zap.Uint("id", id),
+			zap.Bool("disabled", disabled),
+			zap.Error(err))
+		message := i18n.T(ctx, "error.system_error", nil)
+		return apperrors.SystemError(message)
 	}
 
 	if disabled {
@@ -160,18 +174,24 @@ func UpdateShortLink(ctx context.Context, id uint, targetUrl string) error {
 	var existing model.ShortLink
 	if err := repository.DB.First(&existing, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return apperrors.BusinessError(http.StatusNotFound, "短链不存在")
+			logging.Logger.Info("短链不存在",
+				zap.Uint("id", id),
+				zap.String("target_url", targetUrl))
+			message := i18n.T(ctx, "error.shortcode_not_found", nil)
+			return apperrors.BusinessError(http.StatusNotFound, message)
 		}
-		logging.Logger.Warn("查询短链失败",
+		logging.Logger.Error("查询短链失败",
 			zap.Uint("id", id),
 			zap.String("target_url", targetUrl),
 			zap.Error(err))
-		return apperrors.SystemErrorDefault()
+		message := i18n.T(ctx, "error.system_error", nil)
+		return apperrors.SystemError(message)
 	}
 
 	// 校验目标 URL（复用公共逻辑）
 	if err := utils.ValidateTargetURL(targetUrl); err != nil {
-		return apperrors.InvalidRequestError(err.Error())
+		message := i18n.T(ctx, err.Error(), nil)
+		return apperrors.InvalidRequestError(message)
 	}
 
 	if existing.TargetURL == targetUrl {
@@ -184,17 +204,18 @@ func UpdateShortLink(ctx context.Context, id uint, targetUrl string) error {
 
 	// 保存更新
 	if err := repository.DB.Save(&existing).Error; err != nil {
-		logging.Logger.Warn("更新短链失败",
+		logging.Logger.Error("更新短链失败",
 			zap.Uint("id", id),
 			zap.String("target_url", targetUrl),
 			zap.Error(err))
-		return apperrors.SystemErrorDefault()
+		message := i18n.T(ctx, "error.system_error", nil)
+		return apperrors.SystemError(message)
 	}
 
 	return nil
 }
 
-func RedirectToTargetURL(ctx context.Context, shortCode string, ip string) (*model.ShortLink, bool) {
+func RedirectToTargetURL(shortCode string, ip string) (*model.ShortLink, bool) {
 	if err := utils.ValidateShortCode(shortCode); err != nil {
 		logging.Logger.Error("无效的 short_code",
 			zap.String("short_code", shortCode),         // 出错的 short_code
@@ -276,7 +297,7 @@ func RedirectToTargetURL(ctx context.Context, shortCode string, ip string) (*mod
 }
 
 func StatisticalData() error {
-	logging.Logger.Info("StatisticalData start")
+	logging.Logger.Info("#StatisticalData | start")
 	var links []model.ShortLink
 	if err := repository.DB.Find(&links).Error; err != nil {
 		logging.Logger.Error("获取短链列表失败", zap.Error(err))
@@ -288,7 +309,7 @@ func StatisticalData() error {
 		DoStatisticalData(link, today)
 	}
 
-	logging.Logger.Info("StatisticalData end")
+	logging.Logger.Info("#StatisticalData | end")
 	return nil
 }
 
@@ -299,7 +320,6 @@ func DoStatisticalData(shortLink model.ShortLink, today string) {
 		yesterday := time.Now().AddDate(0, 0, -1)
 		if updatedAt.Before(yesterday) {
 			logging.Logger.Warn("#doStatisticalData | Skipping sync for shortcode",
-
 				zap.String("shortcode", shortLink.ShortCode),
 				zap.Bool("disabled", shortLink.Disabled),
 				zap.Time("updatedTime", updatedAt),

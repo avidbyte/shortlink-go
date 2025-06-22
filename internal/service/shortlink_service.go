@@ -130,61 +130,15 @@ func ListShortLinks(
 	}, nil
 }
 
-// UpdateShortLinkStatus 更新短链状态（启用/禁用）
-func UpdateShortLinkStatus(ctx context.Context, id uint, disabled bool) error {
-	var link model.ShortLink
-	if err := repository.DB.First(&link, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			message := i18n.T(ctx, "shortcode_not_found", nil)
-			return apperrors.BusinessError(http.StatusConflict, message)
-		}
-		logging.Logger.Error("查询短链失败",
-			zap.Uint("id", id),
-			zap.Bool("disabled", disabled),
-			zap.Error(err))
-		message := i18n.T(ctx, "error.system_error", nil)
-		return apperrors.SystemError(message)
+// UpdateShortLink 更新短链配置（包含状态可选修改）
+func UpdateShortLink(ctx context.Context, id uint, targetUrl string, redirectCode int, newDisabled *bool) error {
+
+	// 校验目标 URL（可根据需求调整）
+	if err := utils.ValidateTargetURL(targetUrl); err != nil {
+		message := i18n.T(ctx, err.Error(), nil)
+		return apperrors.InvalidRequestError(message)
 	}
 
-	// 更新状态
-	link.Disabled = disabled
-	if err := repository.DB.Save(&link).Error; err != nil {
-		logging.Logger.Error("更新短链状态失败",
-			zap.Uint("id", id),
-			zap.Bool("disabled", disabled),
-			zap.Error(err))
-		message := i18n.T(ctx, "error.system_error", nil)
-		return apperrors.SystemError(message)
-	}
-
-	if disabled {
-
-		conn := repository.RedisPool.Get()
-
-		defer func() {
-			if err := conn.Close(); err != nil {
-				logging.Logger.Error("Failed to close Redis connection",
-					zap.Error(err),
-					zap.String("operation", "close"),
-					zap.String("connection_type", "redis"),
-				)
-			}
-		}()
-
-		// 禁用短链，删除 Redis 中的缓存
-		cacheKey := constant.GetShortCodeKey(link.ShortCode)
-		if _, err := conn.Do("DEL", cacheKey); err != nil {
-			logging.Logger.Warn("Redis 删除缓存失败",
-				zap.String("cache_key", cacheKey),
-				zap.Error(err))
-		}
-	}
-
-	return nil
-}
-
-// UpdateShortLink 仅更新短链的 target_url 字段
-func UpdateShortLink(ctx context.Context, id uint, targetUrl string) error {
 	// 查询现有短链记录
 	var existing model.ShortLink
 	if err := repository.DB.First(&existing, id).Error; err != nil {
@@ -203,25 +157,111 @@ func UpdateShortLink(ctx context.Context, id uint, targetUrl string) error {
 		return apperrors.SystemError(message)
 	}
 
-	// 校验目标 URL（复用公共逻辑）
-	if err := utils.ValidateTargetURL(targetUrl); err != nil {
-		message := i18n.T(ctx, err.Error(), nil)
-		return apperrors.InvalidRequestError(message)
+	// Redis 连接
+	conn := repository.RedisPool.Get()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logging.Logger.Error("关闭 Redis 连接失败",
+				zap.Error(err),
+				zap.String("operation", "close"),
+				zap.String("connection_type", "redis"),
+			)
+		}
+	}()
+
+	shortcode := existing.ShortCode
+	cacheKey := constant.GetShortCodeKey(shortcode)
+	totalPvKey := constant.GetTotalPVKey(shortcode)
+	totalUvKey := constant.GetTotalUVKey(shortcode)
+
+	// 判断状态是否需要变更
+	if newDisabled != nil && *newDisabled != existing.Disabled {
+		if *newDisabled {
+			// 由启用变为禁用，备份 redis 数据，删除缓存
+
+			// 删除缓存
+			if _, err := conn.Do("DEL", cacheKey); err != nil {
+				logging.Logger.Warn("Redis 删除缓存失败",
+					zap.String("cache_key", cacheKey),
+					zap.Error(err))
+			}
+
+			// 同步统计数据到 DB
+			DoStatisticalData(existing, constant.GetDateKey())
+
+			// 备份 HyperLogLog
+			hllData, err := redis.Bytes(conn.Do("DUMP", totalUvKey))
+			if err != nil {
+				logging.Logger.Warn("备份 HyperLogLog 失败",
+					zap.String("key", totalUvKey),
+					zap.Error(err))
+			} else {
+				existing.UvHLLBackup = hllData
+			}
+
+			// 删除总 PV 和 UV 缓存
+			if _, err := conn.Do("DEL", totalPvKey); err != nil {
+				logging.Logger.Warn("删除 Redis 总 PV 失败",
+					zap.String("key", totalPvKey),
+					zap.Error(err))
+			}
+			if _, err := conn.Do("DEL", totalUvKey); err != nil {
+				logging.Logger.Warn("删除 Redis 总 UV 失败",
+					zap.String("key", totalUvKey),
+					zap.Error(err))
+			}
+
+		} else {
+			// 由禁用变为启用，恢复 Redis 缓存
+
+			// 恢复 PV
+			if existing.TotalPV > 0 {
+				if _, err := conn.Do("SET", totalPvKey, existing.TotalPV); err != nil {
+					logging.Logger.Warn("恢复 Redis 总 PV 失败",
+						zap.String("key", totalPvKey),
+						zap.Int64("value", existing.TotalPV),
+						zap.Error(err))
+				}
+			}
+
+			// 恢复 UV HyperLogLog
+			if len(existing.UvHLLBackup) > 0 {
+				_, _ = conn.Do("DEL", totalUvKey)
+				if _, err := conn.Do("RESTORE", totalUvKey, 0, existing.UvHLLBackup); err != nil {
+					logging.Logger.Warn("恢复 Redis HyperLogLog 失败",
+						zap.String("key", totalUvKey),
+						zap.Error(err))
+				}
+			} else {
+				// 初始化空 HyperLogLog
+				if _, err := conn.Do("PFADD", totalUvKey, "init"); err != nil {
+					logging.Logger.Warn("初始化空 HyperLogLog 失败",
+						zap.String("key", totalUvKey),
+						zap.Error(err))
+				}
+			}
+		}
+		// 更新状态字段
+		existing.Disabled = *newDisabled
 	}
 
-	if existing.TargetURL == targetUrl {
-		return nil // 无需更新
+	// 更新 targetUrl（如果有变更）
+	if existing.TargetURL != targetUrl {
+		existing.TargetURL = targetUrl
 	}
 
-	// 更新 targetUrl 字段
-	existing.TargetURL = targetUrl
-	existing.UpdatedAt = time.Now() // 可选：更新时间戳
+	if existing.RedirectCode != redirectCode {
+		existing.RedirectCode = redirectCode
+	}
+
+	existing.UpdatedAt = time.Now()
 
 	// 保存更新
 	if err := repository.DB.Save(&existing).Error; err != nil {
 		logging.Logger.Error("更新短链失败",
 			zap.Uint("id", id),
 			zap.String("target_url", targetUrl),
+			zap.Bool("disabled", existing.Disabled),
 			zap.Error(err))
 		message := i18n.T(ctx, "error.system_error", nil)
 		return apperrors.SystemError(message)
@@ -402,9 +442,21 @@ func DoStatisticalData(shortLink model.ShortLink, today string) {
 
 }
 
-// GetStatsByShortLinkID 获取统计信息
-func GetStatsByShortLinkID(id uint) ([]model.DailyStat, error) {
-	var stats []model.DailyStat
-	err := repository.DB.Where("short_link_id = ?", id).Order("date DESC").Find(&stats).Error
-	return stats, err
+func DeleteShortLink(ctx context.Context, id uint) error {
+	err := repository.DB.WithContext(ctx).Delete(&model.ShortLink{}, id).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			message := i18n.T(ctx, "error.shortcode_not_found", nil)
+			return apperrors.BusinessError(http.StatusNotFound, message)
+		}
+		// 其他错误返回系统错误提示
+		logging.Logger.Error("删除短链失败",
+			zap.Uint("id", id),
+			zap.Error(err))
+		message := i18n.T(ctx, "error.system_error", nil)
+		return apperrors.SystemError(message)
+	}
+
+	// 删除成功可以返回 nil 或者成功消息（一般接口返回 nil 即代表成功）
+	return nil
 }

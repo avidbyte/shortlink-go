@@ -8,4 +8,5 @@ type ShortLink struct {
 	Disabled     bool   `json:"disabled" json:"disabled"`
 	TotalPV      int64  `gorm:"default:0" json:"totalPv"`
 	TotalUV      int64  `gorm:"default:0" json:"totalUv"`
+	UvHLLBackup  []byte `gorm:"type:blob" json:"-"`
 }

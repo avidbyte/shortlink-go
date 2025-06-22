@@ -113,8 +113,8 @@ func main() {
 	{
 		api.POST("/shortlink", handler.CreateShortLinkHandler)
 		api.GET("/shortlink", handler.ListShortLinksHandler)
-		api.PUT("/shortlink/status/:id", handler.UpdateShortLinkStatusHandler)
 		api.PUT("/shortlink/:id", handler.UpdateShortLinkHandler)
+		api.DELETE("/shortlink/:id", handler.DeleteShortLinkHandler)
 
 		api.POST("/whitelist", handler.CreateWhitelistDomainHandler)
 		api.GET("/whitelist", handler.ListWhitelistDomainsHandler)

@@ -105,45 +105,7 @@ func ListShortLinksHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, response.OK(pageResp, "success"))
 }
 
-// UpdateShortLinkStatusHandler 更新短链状态（启用/禁用）
-func UpdateShortLinkStatusHandler(c *gin.Context) {
-	// 从 URL 获取 ID
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil || id < 1 {
-		message := i18n.T(c.Request.Context(), "error.invalid_id", nil)
-		_ = c.Error(apperrors.InvalidRequestError(message))
-		return
-	}
-
-	// 解析请求体
-	var req struct {
-		Status int `json:"status"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		message := i18n.T(c.Request.Context(), "error.request_body_invalid", nil)
-		_ = c.Error(apperrors.InvalidRequestError(message))
-		return
-	}
-
-	// 校验 status 值
-	if req.Status != 0 && req.Status != 1 {
-		message := i18n.T(c.Request.Context(), "error.status_invalid", nil)
-		_ = c.Error(apperrors.InvalidRequestError(message))
-		return
-	}
-
-	// 调用服务层
-	if err := service.UpdateShortLinkStatus(c.Request.Context(), uint(id), req.Status == 1); err != nil {
-		_ = c.Error(err)
-		return
-	}
-	message := i18n.T(c.Request.Context(), "success.short_link_status_updated", nil)
-	c.JSON(http.StatusOK, response.OK(struct{}{}, message))
-}
-
-// UpdateShortLinkHandler
-
+// UpdateShortLinkHandler 更新短链配置
 func UpdateShortLinkHandler(c *gin.Context) {
 	// 1. 从 URL 路径中提取短链 ID
 	idStr := c.Param("id")
@@ -163,7 +125,7 @@ func UpdateShortLinkHandler(c *gin.Context) {
 	}
 
 	// 4. 调用服务层更新逻辑
-	if err := service.UpdateShortLink(c.Request.Context(), uint(id), req.TargetURL); err != nil {
+	if err := service.UpdateShortLink(c.Request.Context(), uint(id), req.TargetURL, req.RedirectCode, req.Disabled); err != nil {
 		// 记录关键业务参数和错误上下文
 		zap.L().Warn("Short chain update failed",
 			zap.Error(err),
@@ -220,15 +182,23 @@ func RedirectToTargetURLHandler(c *gin.Context) {
 	c.Redirect(redirectCode, targetURL)
 }
 
-func GetStats(c *gin.Context) {
+func DeleteShortLinkHandler(c *gin.Context) {
+	// 1. 从 URL 路径中提取短链 ID
 	idStr := c.Param("id")
-	id, _ := strconv.Atoi(idStr)
-
-	stats, err := service.GetStatsByShortLinkID(uint(id))
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Not found"})
+		message := i18n.T(c.Request.Context(), "error.invalid_id", nil)
+		_ = c.Error(apperrors.BusinessError(http.StatusBadRequest, message))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"stats": stats})
+	if err := service.DeleteShortLink(c.Request.Context(), uint(id)); err != nil {
+		// 记录关键业务参数和错误上下文
+		zap.L().Warn("Short chain deletion failed",
+			zap.Error(err),
+			zap.Uint("id", uint(id)),
+		)
+		_ = c.Error(err)
+		return
+	}
 }

@@ -53,6 +53,31 @@ func ListShortLinksHandler(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "1")
 	sizeStr := c.DefaultQuery("size", "10")
 	shortCode := c.Query("shortCode")
+	targetUrl := c.Query("targetUrl")
+
+	// 获取 redirectCode，并转换为 int
+	redirectCodeStr := c.Query("redirectCode")
+	var redirectCode int
+	if redirectCodeStr != "" {
+		var err error
+		redirectCode, err = strconv.Atoi(redirectCodeStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid redirectCode"})
+			return
+		}
+	}
+
+	// 获取 disabled，并转换为 bool
+	disabledStr := c.Query("disabled")
+	var disabled *bool // 用指针以区分“未传”和“传了 false”
+	if disabledStr != "" {
+		value, err := strconv.ParseBool(disabledStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid disabled"})
+			return
+		}
+		disabled = &value
+	}
 
 	// 参数转换
 	page, err := strconv.Atoi(pageStr)
@@ -70,7 +95,7 @@ func ListShortLinksHandler(c *gin.Context) {
 	}
 
 	// 调用服务层
-	pageResp, err := service.ListShortLinks(c.Request.Context(), page, size, shortCode)
+	pageResp, err := service.ListShortLinks(c.Request.Context(), page, size, shortCode, targetUrl, redirectCode, disabled)
 	if err != nil {
 		_ = c.Error(err)
 		return

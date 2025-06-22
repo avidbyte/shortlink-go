@@ -57,19 +57,36 @@ func CreateShortLink(ctx context.Context, req dto.CreateShortLinkRequest) error 
 }
 
 // ListShortLinks 支持分页查询短链列表
-func ListShortLinks(ctx context.Context, page, size int, shortCode string) (*response.PageResponse[model.ShortLink], error) {
+func ListShortLinks(
+	ctx context.Context,
+	page, size int,
+	shortCode string,
+	targetUrl string,
+	redirectCode int,
+	disabled *bool,
+) (*response.PageResponse[model.ShortLink], error) {
 	// 参数校验
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 || size > 100 {
-		size = 10 // 默认每页10条，最大100条
+		size = 10
 	}
 
 	// 构建查询条件
 	db := repository.DB.Model(&model.ShortLink{})
+
 	if shortCode != "" {
 		db = db.Where("short_code LIKE ?", "%"+shortCode+"%")
+	}
+	if targetUrl != "" {
+		db = db.Where("target_url LIKE ?", "%"+targetUrl+"%")
+	}
+	if redirectCode != 0 {
+		db = db.Where("redirect_code = ?", redirectCode)
+	}
+	if disabled != nil {
+		db = db.Where("disabled = ?", *disabled)
 	}
 
 	// 查询总记录数
@@ -80,7 +97,6 @@ func ListShortLinks(ctx context.Context, page, size int, shortCode string) (*res
 		return nil, apperrors.SystemError(message)
 	}
 
-	// 如果总数为0，直接返回空结果，不执行分页查询
 	if total == 0 {
 		return &response.PageResponse[model.ShortLink]{
 			Page:      page,
@@ -91,19 +107,18 @@ func ListShortLinks(ctx context.Context, page, size int, shortCode string) (*res
 		}, nil
 	}
 
-	// 查询分页数据
+	// 分页查询
 	var links []model.ShortLink
 	if err := db.
 		Limit(size).
 		Offset((page - 1) * size).
 		Order("id DESC").
 		Find(&links).Error; err != nil {
-		logging.Logger.Info("数据库操作失败", zap.Error(err))
+		logging.Logger.Error("分页查询短链失败", zap.Error(err))
 		message := i18n.T(ctx, "error.system_error", nil)
 		return nil, apperrors.SystemError(message)
 	}
 
-	// 计算总页数
 	totalPage := (int(total) + size - 1) / size
 
 	return &response.PageResponse[model.ShortLink]{

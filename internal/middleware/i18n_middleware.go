@@ -13,7 +13,7 @@ func I18nMiddleware(bundle *thirdPartyI18n.Bundle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acceptLanguage := c.GetHeader("Accept-Language")
 		tags, _, _ := language.ParseAcceptLanguage(acceptLanguage)
-		lang := "en" // 默认语言
+		lang := "zh" // 默认语言
 		for _, tag := range tags {
 			if contains(i18n.SupportedLanguages, tag.String()) {
 				lang = tag.String()

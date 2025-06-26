@@ -15,6 +15,7 @@ type CreateShortLinkRequest struct {
 
 // UpdateShortLinkRequest 用于更新短链的请求参数
 type UpdateShortLinkRequest struct {
+	ID           uint   `json:"id"`
 	TargetURL    string `json:"targetUrl" binding:"required,url" msg:"targetUrl must be a valid URL"` // 必填字段，Gin 内置 URL 校验
 	RedirectCode int    `json:"redirectCode" binding:"required,oneof=301 302 307"`                    // 仅允许301/302/307
 	Disabled     *bool  `json:"disabled" `

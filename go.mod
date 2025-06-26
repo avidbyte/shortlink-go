@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-playground/validator/v10 v10.26.0
-	github.com/gomodule/redigo v2.0.0+incompatible
+	github.com/gomodule/redigo v1.9.2
 	github.com/nicksnyder/go-i18n/v2 v2.6.0
 	github.com/robfig/cron/v3 v3.0.0
 	github.com/spf13/viper v1.15.0

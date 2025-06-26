@@ -107,16 +107,7 @@ func ListShortLinksHandler(c *gin.Context) {
 
 // UpdateShortLinkHandler 更新短链配置
 func UpdateShortLinkHandler(c *gin.Context) {
-	// 1. 从 URL 路径中提取短链 ID
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		message := i18n.T(c.Request.Context(), "error.invalid_id", nil)
-		_ = c.Error(apperrors.BusinessError(http.StatusBadRequest, message))
-		return
-	}
-
-	// 2. 绑定请求体到 DTO
+	//绑定请求体到 DTO
 	var req dto.UpdateShortLinkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		message := i18n.T(c.Request.Context(), "error.request_body_invalid", nil)
@@ -125,11 +116,11 @@ func UpdateShortLinkHandler(c *gin.Context) {
 	}
 
 	// 4. 调用服务层更新逻辑
-	if err := service.UpdateShortLink(c.Request.Context(), uint(id), req.TargetURL, req.RedirectCode, req.Disabled); err != nil {
+	if err := service.UpdateShortLink(c.Request.Context(), req.ID, req.TargetURL, req.RedirectCode, req.Disabled); err != nil {
 		// 记录关键业务参数和错误上下文
 		zap.L().Warn("Short chain update failed",
 			zap.Error(err),
-			zap.Uint("id", uint(id)),
+			zap.Uint("id", req.ID),
 			zap.String("target_url", req.TargetURL),
 		)
 		_ = c.Error(err)

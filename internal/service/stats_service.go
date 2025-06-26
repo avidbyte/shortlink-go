@@ -88,6 +88,13 @@ func GetDailyPv(conn redis.Conn, shortCode string, date string) (int64, error) {
 		return 0, err
 	}
 
+	if reply == nil {
+		logging.Logger.Warn("Daily PV not found",
+			zap.String("key", dailyPvKey),
+			zap.String("short_code", shortCode))
+		return 0, nil // 或者 return 0, ErrNotFound 自定义错误
+	}
+
 	// 将 Redis 回复转换为 int64
 	result, err := redis.Int64(reply, err)
 	if err != nil {
@@ -142,8 +149,14 @@ func GetTotalPv(conn redis.Conn, shortCode string) (int64, error) {
 		return 0, err
 	}
 
-	// 将 Redis 回复转换为 int64
-	result, err := redis.Int64(reply, err)
+	if reply == nil {
+		logging.Logger.Warn("Total PV not found",
+			zap.String("key", totalPvKey),
+			zap.String("short_code", shortCode))
+		return 0, nil // 或者 return 0, ErrNotFound 自定义错误
+	}
+
+	result, err := redis.Int64(reply, nil)
 	if err != nil {
 		logging.Logger.Error("Failed to parse total PV",
 			zap.String("key", totalPvKey),

@@ -24,3 +24,4 @@ short_link_created = "Short link created successfully"
 domain_added_to_whitelist = "Domain added to whitelist successfully"
 
 short_link_status_updated = "Short link status updated successfully"
+short_link_deleted = "Short link deleted successfully"

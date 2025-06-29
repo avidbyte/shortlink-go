@@ -115,7 +115,7 @@ func UpdateShortLinkHandler(c *gin.Context) {
 		return
 	}
 
-	// 4. 调用服务层更新逻辑
+	//调用服务层更新逻辑
 	if err := service.UpdateShortLink(c.Request.Context(), req.ID, req.TargetURL, req.RedirectCode, req.Disabled); err != nil {
 		// 记录关键业务参数和错误上下文
 		zap.L().Warn("Short chain update failed",
@@ -192,4 +192,7 @@ func DeleteShortLinkHandler(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
+
+	message := i18n.T(c.Request.Context(), "success.short_link_deleted", nil)
+	c.JSON(http.StatusOK, response.OK("", message))
 }

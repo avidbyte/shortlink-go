@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"net/http"
 	"shortlink-go/constant"
 	"shortlink-go/internal/apperrors"
@@ -34,7 +35,6 @@ func CreateShortLink(ctx context.Context, req dto.CreateShortLinkRequest) error 
 	var existing model.ShortLink
 	if err := repository.DB.Where("short_code = ?", req.ShortCode).First(&existing).Error; err == nil {
 		logging.Logger.Info("短链已存在", zap.Error(err))
-
 		return apperrors.BusinessError(http.StatusConflict, "短链已存在")
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		logging.Logger.Info("查询短链失败", zap.Error(err))
@@ -133,7 +133,7 @@ func ListShortLinks(
 // UpdateShortLink 更新短链配置（包含状态可选修改）
 func UpdateShortLink(ctx context.Context, id uint, targetUrl string, redirectCode int, newDisabled *bool) error {
 
-	// 校验目标 URL（可根据需求调整）
+	// 校验目标 URL
 	if err := utils.ValidateTargetURL(targetUrl); err != nil {
 		message := i18n.T(ctx, err.Error(), nil)
 		return apperrors.InvalidRequestError(message)
@@ -157,88 +157,37 @@ func UpdateShortLink(ctx context.Context, id uint, targetUrl string, redirectCod
 		return apperrors.SystemError(message)
 	}
 
-	// Redis 连接
-	conn := repository.RedisPool.Get()
-	defer func() {
-		if err := conn.Close(); err != nil {
-			logging.Logger.Error("关闭 Redis 连接失败",
-				zap.Error(err),
-				zap.String("operation", "close"),
-				zap.String("connection_type", "redis"),
-			)
-		}
-	}()
-
-	shortcode := existing.ShortCode
-	cacheKey := constant.GetShortCodeKey(shortcode)
-	totalPvKey := constant.GetTotalPVKey(shortcode)
-	totalUvKey := constant.GetTotalUVKey(shortcode)
-
 	// 判断状态是否需要变更
 	if newDisabled != nil && *newDisabled != existing.Disabled {
 		if *newDisabled {
-			// 由启用变为禁用，备份 redis 数据，删除缓存
-
-			// 删除缓存
-			if _, err := conn.Do("DEL", cacheKey); err != nil {
-				logging.Logger.Warn("Redis 删除缓存失败",
-					zap.String("cache_key", cacheKey),
+			// 禁用：同步统计、备份、清理 Redis
+			if err := DoStatisticalData(&existing, constant.GetDateKey()); err != nil {
+				logging.Logger.Error("禁用时同步统计数据失败",
+					zap.Uint("id", existing.ID),
 					zap.Error(err))
+				return apperrors.SystemError(i18n.T(ctx, "error.system_error", nil))
 			}
 
-			// 同步统计数据到 DB
-			DoStatisticalData(existing, constant.GetDateKey())
-
-			// 备份 HyperLogLog
-			hllData, err := redis.Bytes(conn.Do("DUMP", totalUvKey))
-			if err != nil {
-				logging.Logger.Warn("备份 HyperLogLog 失败",
-					zap.String("key", totalUvKey),
+			if err := HandleShortLinkRedisHllBackup(&existing); err != nil {
+				logging.Logger.Error("禁用时清理 Redis 缓存失败",
+					zap.Uint("id", existing.ID),
 					zap.Error(err))
-			} else {
-				existing.UvHLLBackup = hllData
+				return apperrors.SystemError(i18n.T(ctx, "error.system_error", nil))
 			}
 
-			// 删除总 PV 和 UV 缓存
-			if _, err := conn.Do("DEL", totalPvKey); err != nil {
-				logging.Logger.Warn("删除 Redis 总 PV 失败",
-					zap.String("key", totalPvKey),
+			if err := HandleShortLinkRedisCleanup(&existing); err != nil {
+				logging.Logger.Error("禁用时清理 Redis 缓存失败",
+					zap.Uint("id", existing.ID),
 					zap.Error(err))
+				return apperrors.SystemError(i18n.T(ctx, "error.system_error", nil))
 			}
-			if _, err := conn.Do("DEL", totalUvKey); err != nil {
-				logging.Logger.Warn("删除 Redis 总 UV 失败",
-					zap.String("key", totalUvKey),
-					zap.Error(err))
-			}
-
 		} else {
 			// 由禁用变为启用，恢复 Redis 缓存
-
-			// 恢复 PV
-			if existing.TotalPV > 0 {
-				if _, err := conn.Do("SET", totalPvKey, existing.TotalPV); err != nil {
-					logging.Logger.Warn("恢复 Redis 总 PV 失败",
-						zap.String("key", totalPvKey),
-						zap.Int64("value", existing.TotalPV),
-						zap.Error(err))
-				}
-			}
-
-			// 恢复 UV HyperLogLog
-			if len(existing.UvHLLBackup) > 0 {
-				_, _ = conn.Do("DEL", totalUvKey)
-				if _, err := conn.Do("RESTORE", totalUvKey, 0, existing.UvHLLBackup); err != nil {
-					logging.Logger.Warn("恢复 Redis HyperLogLog 失败",
-						zap.String("key", totalUvKey),
-						zap.Error(err))
-				}
-			} else {
-				// 初始化空 HyperLogLog
-				if _, err := conn.Do("PFADD", totalUvKey, "init"); err != nil {
-					logging.Logger.Warn("初始化空 HyperLogLog 失败",
-						zap.String("key", totalUvKey),
-						zap.Error(err))
-				}
+			if err := RestoreShortLinkCacheFromDB(&existing); err != nil {
+				logging.Logger.Error("启用时恢复 Redis 缓存失败",
+					zap.Uint("id", existing.ID),
+					zap.Error(err))
+				return apperrors.SystemError(i18n.T(ctx, "error.redis_restore_failed", nil))
 			}
 		}
 		// 更新状态字段
@@ -353,36 +302,98 @@ func RedirectToTargetURL(shortCode string, ip string) (*model.ShortLink, bool) {
 
 func StatisticalData() error {
 	logging.Logger.Info("#StatisticalData | start")
-	var links []model.ShortLink
-	if err := repository.DB.Find(&links).Error; err != nil {
+	var shortLinks []model.ShortLink
+	if err := repository.DB.Find(&shortLinks).Error; err != nil {
 		logging.Logger.Error("获取短链列表失败", zap.Error(err))
 		return err
 	}
-	// 获取当前日期，并格式化为 "2006-01-02" 格式的字符串
-	today := time.Now().Format("2006-01-02")
-	for _, link := range links {
-		DoStatisticalData(link, today)
+
+	for _, shortLink := range shortLinks {
+		// 禁用：同步统计、备份、清理 Redis
+		if err := DoStatisticalData(&shortLink, constant.GetDateKey()); err != nil {
+			logging.Logger.Error("禁用时同步统计数据失败",
+				zap.Uint("id", shortLink.ID),
+				zap.Error(err))
+		}
+
 	}
 
 	logging.Logger.Info("#StatisticalData | end")
 	return nil
 }
 
-func DoStatisticalData(shortLink model.ShortLink, today string) {
-	updatedAt := shortLink.UpdatedAt // time.Time 类型
-	// 判断逻辑
-	if shortLink.Disabled && !updatedAt.IsZero() { // updatedAt 不为零值（即有更新时间）
+func DeleteShortLink(ctx context.Context, id uint) error {
+	return repository.DB.Transaction(func(tx *gorm.DB) error {
+		// 查询现有短链记录
+		var existing model.ShortLink
+		if err := tx.First(&existing, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			logging.Logger.Error("查询短链失败",
+				zap.Uint("id", id),
+				zap.Error(err))
+			message := i18n.T(ctx, "error.system_error", nil)
+			return apperrors.SystemError(message)
+		}
+
+		// 删除 daily_stats 统计记录
+		if err := tx.Where("short_link_id = ?", existing.ID).Delete(&model.DailyStat{}).Error; err != nil {
+			logging.Logger.Error("删除 daily_stats 统计记录失败",
+				zap.Uint("id", existing.ID),
+				zap.Error(err))
+			return apperrors.SystemError(i18n.T(ctx, "error.daily_stats_delete_failed", nil))
+		}
+
+		// 删除 short_link 本身
+		if err := tx.Delete(&model.ShortLink{}, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				message := i18n.T(ctx, "error.shortcode_not_found", nil)
+				return apperrors.BusinessError(http.StatusNotFound, message)
+			}
+			logging.Logger.Error("删除短链失败",
+				zap.Uint("id", id),
+				zap.Error(err))
+			message := i18n.T(ctx, "error.system_error", nil)
+			return apperrors.SystemError(message)
+		}
+
+		// 清理 Redis 缓存
+		if err := HandleShortLinkRedisCleanup(&existing); err != nil {
+			logging.Logger.Error("禁用时清理 Redis 缓存失败",
+				zap.Uint("id", existing.ID),
+				zap.String("shortcode", existing.ShortCode),
+				zap.Error(err))
+			return apperrors.SystemError(i18n.T(ctx, "error.redis_cleanup_failed", nil))
+		}
+
+		return nil
+	})
+}
+
+func DoStatisticalData(shortLink *model.ShortLink, today string) error {
+	updatedAt := shortLink.UpdatedAt
+	if shortLink.Disabled && !updatedAt.IsZero() {
 		yesterday := time.Now().AddDate(0, 0, -1)
 		if updatedAt.Before(yesterday) {
-			logging.Logger.Warn("#doStatisticalData | Skipping sync for shortcode",
-				zap.String("shortcode", shortLink.ShortCode),
-				zap.Bool("disabled", shortLink.Disabled),
-				zap.Time("updatedTime", updatedAt),
-			)
-			return
+			logging.Logger.Warn("Skipping sync for disabled shortcode",
+				zap.String("shortcode", shortLink.ShortCode))
+			return nil
 		}
 	}
 
+	dailyPv, dailyUv, totalPv, totalUv, err := GetStatisticalData(*shortLink, today)
+	if err != nil {
+		return err
+	}
+
+	shortLink.TotalPV = totalPv
+	shortLink.TotalUV = totalUv
+
+	return SaveStatisticalData(shortLink, today, dailyPv, dailyUv, totalPv, totalUv)
+}
+
+func GetStatisticalData(shortLink model.ShortLink, today string) (dailyPv, dailyUv, totalPv, totalUv uint64, err error) {
 	conn := repository.RedisPool.Get()
 	defer func() {
 		if err := conn.Close(); err != nil {
@@ -394,69 +405,154 @@ func DoStatisticalData(shortLink model.ShortLink, today string) {
 		}
 	}()
 
-	dailyPv, _ := GetDailyPv(conn, shortLink.ShortCode, today)
+	dailyPv, err = GetDailyPv(conn, shortLink.ShortCode, today)
+	if err != nil {
+		return
+	}
 
-	dailyUv, _ := GetDailyUv(conn, shortLink.ShortCode, today)
+	dailyUv, err = GetDailyUv(conn, shortLink.ShortCode, today)
+	if err != nil {
+		return
+	}
 
-	totalPv, _ := GetTotalPv(conn, shortLink.ShortCode)
+	totalPv, err = GetTotalPv(conn, shortLink.ShortCode)
+	if err != nil {
+		return
+	}
 
-	totalUv, _ := GetTotalUv(conn, shortLink.ShortCode)
+	totalUv, err = GetTotalUv(conn, shortLink.ShortCode)
+	if err != nil {
+		return
+	}
 
-	// 更新数据库中的每日统计（DailyStat）
-	dailyStat := &model.DailyStat{
+	return
+}
+
+// SaveStatisticalData 保存统计数据
+func SaveStatisticalData(shortLink *model.ShortLink, today string, dailyPv, dailyUv, totalPv, totalUv uint64) error {
+
+	if err := repository.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "short_link_id"}, {Name: "date"}},
+		DoUpdates: clause.AssignmentColumns([]string{"pv", "uv"}),
+	}).Create(&model.DailyStat{
 		ShortLinkID: shortLink.ID,
 		Date:        today,
 		PV:          dailyPv,
 		UV:          dailyUv,
+	}).Error; err != nil {
+		return err
 	}
 
-	// 获取数据库连接
-	db := repository.DB.Where("short_link_id = ? AND date = ?", shortLink.ID, today).
-		Assign("pv", dailyPv, "uv", dailyUv).
-		FirstOrCreate(dailyStat)
-
-	// 检查错误
-	if db.Error != nil {
-		logging.Logger.Error("Failed to insert or update daily stat",
-			zap.Uint("short_link_id", shortLink.ID),
-			zap.String("date", today),
-			zap.Int64("pv", dailyPv),
-			zap.Int64("uv", dailyUv),
-			zap.Error(db.Error), // ✅ 正确：使用 db.Error
-		)
-	}
-
-	// 更新数据库中的短链接总 PV/UV
 	if err := repository.DB.Model(&shortLink).
 		Where("id = ?", shortLink.ID).
 		Updates(map[string]interface{}{
 			"total_pv": totalPv,
 			"total_uv": totalUv,
 		}).Error; err != nil {
-		logging.Logger.Error("Failed to update total PV/UV",
-			zap.Uint("id", shortLink.ID),
-			zap.Int64("total_pv", totalPv),
-			zap.Int64("total_uv", totalUv),
-			zap.Error(err))
+		logging.Logger.Error("Failed to update total PV/UV", zap.Error(err))
+		return err
 	}
 
+	return nil
 }
 
-func DeleteShortLink(ctx context.Context, id uint) error {
-	err := repository.DB.WithContext(ctx).Delete(&model.ShortLink{}, id).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			message := i18n.T(ctx, "error.shortcode_not_found", nil)
-			return apperrors.BusinessError(http.StatusNotFound, message)
+func HandleShortLinkRedisHllBackup(shortLink *model.ShortLink) error {
+	conn := repository.RedisPool.Get()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logging.Logger.Error("关闭 Redis 连接失败",
+				zap.Error(err),
+				zap.String("operation", "close"),
+				zap.String("connection_type", "redis"),
+			)
 		}
-		// 其他错误返回系统错误提示
-		logging.Logger.Error("删除短链失败",
-			zap.Uint("id", id),
-			zap.Error(err))
-		message := i18n.T(ctx, "error.system_error", nil)
-		return apperrors.SystemError(message)
+	}()
+
+	shortcode := shortLink.ShortCode
+	totalUvKey := constant.GetTotalUVKey(shortcode)
+
+	hllData, err := redis.Bytes(conn.Do("DUMP", totalUvKey))
+	if err != nil {
+		if err == redis.ErrNil {
+			logging.Logger.Info("HyperLogLog 不存在，无需备份", zap.String("key", totalUvKey))
+			hllData = nil
+		} else {
+			logging.Logger.Warn("备份 HyperLogLog 失败", zap.Error(err))
+			return err
+		}
+	}
+	shortLink.UvHLLBackup = hllData
+
+	if err := repository.DB.Save(shortLink).Error; err != nil {
+		logging.Logger.Error("保存 UV HyperLogLog 备份失败", zap.Error(err))
+		return err
 	}
 
-	// 删除成功可以返回 nil 或者成功消息（一般接口返回 nil 即代表成功）
+	return nil
+}
+
+func HandleShortLinkRedisCleanup(shortLink *model.ShortLink) error {
+	conn := repository.RedisPool.Get()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logging.Logger.Error("关闭 Redis 连接失败",
+				zap.Error(err),
+				zap.String("operation", "close"),
+				zap.String("connection_type", "redis"),
+			)
+		}
+	}()
+
+	shortcode := shortLink.ShortCode
+	totalUvKey := constant.GetTotalUVKey(shortcode)
+	cacheKey := constant.GetShortCodeKey(shortcode)
+	totalPvKey := constant.GetTotalPVKey(shortcode)
+
+	for _, key := range []string{cacheKey, totalPvKey, totalUvKey} {
+		if _, err := conn.Do("DEL", key); err != nil {
+			logging.Logger.Warn("删除 Redis 缓存失败", zap.String("key", key), zap.Error(err))
+			// return err
+		}
+	}
+
+	return nil
+}
+
+// RestoreShortLinkCacheFromDB 从数据库恢复 Redis 缓存（PV + UV）
+func RestoreShortLinkCacheFromDB(shortLink *model.ShortLink) error {
+	conn := repository.RedisPool.Get()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logging.Logger.Error("关闭 Redis 连接失败",
+				zap.Error(err),
+				zap.String("operation", "close"),
+				zap.String("connection_type", "redis"),
+			)
+		}
+	}()
+
+	shortcode := shortLink.ShortCode
+	totalPvKey := constant.GetTotalPVKey(shortcode)
+	totalUvKey := constant.GetTotalUVKey(shortcode)
+
+	// 恢复 PV
+	if shortLink.TotalPV > 0 {
+		if _, err := conn.Do("SET", totalPvKey, shortLink.TotalPV); err != nil {
+			logging.Logger.Warn("恢复 Redis 总 PV 失败",
+				zap.String("key", totalPvKey),
+				zap.Uint64("value", shortLink.TotalPV),
+				zap.Error(err))
+		}
+	}
+
+	// 恢复 UV HyperLogLog
+	if len(shortLink.UvHLLBackup) > 0 {
+		_, _ = conn.Do("DEL", totalUvKey)
+		if _, err := conn.Do("RESTORE", totalUvKey, 0, shortLink.UvHLLBackup); err != nil {
+			logging.Logger.Warn("恢复 Redis HyperLogLog 失败",
+				zap.String("key", totalUvKey),
+				zap.Error(err))
+		}
+	}
 	return nil
 }

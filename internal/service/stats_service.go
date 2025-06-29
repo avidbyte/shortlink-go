@@ -75,7 +75,7 @@ func RecordTotalUV(conn redis.Conn, shortCode string, ip string) {
 }
 
 // GetDailyPv 获取某日期的短链接访问量（PV）
-func GetDailyPv(conn redis.Conn, shortCode string, date string) (int64, error) {
+func GetDailyPv(conn redis.Conn, shortCode string, date string) (uint64, error) {
 	dailyPvKey := constant.GetDailyPVKey(date)
 
 	// 使用 HGET 查询指定 shortCode 的访问量
@@ -96,7 +96,7 @@ func GetDailyPv(conn redis.Conn, shortCode string, date string) (int64, error) {
 	}
 
 	// 将 Redis 回复转换为 int64
-	result, err := redis.Int64(reply, err)
+	result, err := redis.Uint64(reply, err)
 	if err != nil {
 		logging.Logger.Error("Failed to parse daily PV",
 			zap.String("key", dailyPvKey),
@@ -109,7 +109,7 @@ func GetDailyPv(conn redis.Conn, shortCode string, date string) (int64, error) {
 }
 
 // GetDailyUv 获取某日期的短链接独立访客数（UV）
-func GetDailyUv(conn redis.Conn, shortCode string, date string) (int64, error) {
+func GetDailyUv(conn redis.Conn, shortCode string, date string) (uint64, error) {
 	dailyUvKey := constant.GetDailyUVKey(shortCode, date)
 
 	// 使用 PFCount 查询 HyperLogLog 的基数（UV 数量）
@@ -123,7 +123,7 @@ func GetDailyUv(conn redis.Conn, shortCode string, date string) (int64, error) {
 	}
 
 	// 将 Redis 回复转换为 int64
-	result, err := redis.Int64(reply, err)
+	result, err := redis.Uint64(reply, err)
 	if err != nil {
 		logging.Logger.Error("Failed to parse daily UV",
 			zap.String("key", dailyUvKey),
@@ -136,7 +136,7 @@ func GetDailyUv(conn redis.Conn, shortCode string, date string) (int64, error) {
 }
 
 // GetTotalPv 获取短链接的总访问量（PV）
-func GetTotalPv(conn redis.Conn, shortCode string) (int64, error) {
+func GetTotalPv(conn redis.Conn, shortCode string) (uint64, error) {
 	totalPvKey := constant.GetTotalPVKey(shortCode)
 
 	// 使用 GET 查询字符串类型的计数器
@@ -156,7 +156,7 @@ func GetTotalPv(conn redis.Conn, shortCode string) (int64, error) {
 		return 0, nil // 或者 return 0, ErrNotFound 自定义错误
 	}
 
-	result, err := redis.Int64(reply, nil)
+	result, err := redis.Uint64(reply, nil)
 	if err != nil {
 		logging.Logger.Error("Failed to parse total PV",
 			zap.String("key", totalPvKey),
@@ -169,7 +169,7 @@ func GetTotalPv(conn redis.Conn, shortCode string) (int64, error) {
 }
 
 // GetTotalUv 获取短链接的总独立访客数（UV）
-func GetTotalUv(conn redis.Conn, shortCode string) (int64, error) {
+func GetTotalUv(conn redis.Conn, shortCode string) (uint64, error) {
 	totalUvKey := constant.GetTotalUVKey(shortCode)
 
 	// 使用 PFCount 查询 HyperLogLog 的基数（UV 数量）
@@ -183,7 +183,7 @@ func GetTotalUv(conn redis.Conn, shortCode string) (int64, error) {
 	}
 
 	// 将 Redis 回复转换为 int64
-	result, err := redis.Int64(reply, err)
+	result, err := redis.Uint64(reply, err)
 	if err != nil {
 		logging.Logger.Error("Failed to parse total UV",
 			zap.String("key", totalUvKey),

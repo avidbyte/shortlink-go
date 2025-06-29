@@ -24,3 +24,4 @@ short_link_created = "短链创建成功"
 domain_added_to_whitelist = "域名已添加至白名单"
 
 short_link_status_updated= "短链状态已更新"
+short_link_deleted = "短链接已删除"

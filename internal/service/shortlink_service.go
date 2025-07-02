@@ -26,7 +26,6 @@ import (
 func CreateShortLink(ctx context.Context, req dto.CreateShortLinkRequest) error {
 	// Gin 标准验证
 	if err := req.Validate(); err != nil {
-
 		message := i18n.T(ctx, err.Error(), nil)
 		return apperrors.InvalidRequestError(message)
 	}
@@ -43,9 +42,10 @@ func CreateShortLink(ctx context.Context, req dto.CreateShortLinkRequest) error 
 
 	// 构建模型
 	shortLink := &model.ShortLink{
-		TargetURL: req.TargetURL,
-		ShortCode: req.ShortCode,
-		Disabled:  req.Disabled, // 默认 false
+		TargetURL:    req.TargetURL,
+		ShortCode:    req.ShortCode,
+		RedirectCode: req.RedirectCode,
+		Disabled:     req.Disabled, // 默认 false
 	}
 
 	// 数据库持久化

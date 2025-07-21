@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"shortlink-go/internal/handler"
 	"shortlink-go/internal/i18n"
 	"shortlink-go/internal/middleware"
@@ -22,12 +23,16 @@ import (
 )
 
 func initConfig() {
-	wd, _ := os.Getwd()
-	log.Printf("Loading logging from: %s/config.yaml", wd)
+	// 从环境变量获取配置文件路径
+	configPath := os.Getenv("SHORTLINK_CONFIG_PATH")
+	if configPath == "" {
+		// 如果未设置环境变量，使用默认路径（开发环境）
+		configPath = "config.yaml"
+	}
+	log.Printf("Loading config from: %s", configPath)
 
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
+	// Viper 设置配置文件路径
+	viper.SetConfigFile(configPath) // 直接指定完整路径
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read config file: %v", err)
 	}
@@ -89,10 +94,21 @@ func main() {
 	repository.InitDB(logging.Logger, logging.AtomicLevel)
 	repository.InitRedis()
 
-	// 初始化 i18n（加载 TOML 文件）
+	// 获取多语言文件路径
+	i18nDir := os.Getenv("SHORTLINK_I18N_PATH")
+	if i18nDir == "" {
+		// 如果未设置环境变量，使用默认路径（开发环境）
+		i18nDir = "i18n"
+	}
+
+	// 构建多语言文件路径
+	enTomlPath := filepath.Join(i18nDir, "en.toml")
+	zhTomlPath := filepath.Join(i18nDir, "zh.toml")
+
+	// 初始化 i18n （加载 TOML 文件）
 	bundle, err := i18n.InitI18n([]string{
-		"./i18n/en.toml",
-		"./i18n/zh.toml",
+		enTomlPath,
+		zhTomlPath,
 	}, "en")
 	if err != nil {
 		panic(err)
